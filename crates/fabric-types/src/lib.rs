@@ -164,10 +164,24 @@ impl TypeEnv {
                 self.check_expr(value)?;
                 Ok(())
             }
-            Statement::Let { name, ty, value, span: _ } => {
+            Statement::Let { name, ty, value, span } => {
                 let value_info = self.check_expr(value)?;
                 let info = if let Some(ref t) = ty {
-                    type_to_info(t)
+                    let declared = type_to_info(t);
+                    // Allow sensor-to-primitive coercion:
+                    // Sensor { inner: F32, .. } coerces to Exact(F32)
+                    let compatible = match (&declared, &value_info) {
+                        (TypeInfo::Exact(a), TypeInfo::Sensor { inner: b, .. }) => a == b,
+                        _ => declared == value_info,
+                    };
+                    if !compatible {
+                        return Err(TypeError::TypeMismatch {
+                            expected: format!("{:?}", declared),
+                            found: format!("{:?}", value_info),
+                            span: *span,
+                        });
+                    }
+                    declared
                 } else {
                     value_info
                 };

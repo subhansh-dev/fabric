@@ -33,6 +33,10 @@ pub enum CheckError {
         loop_name: String,
         span: Span,
     },
+    TypeError {
+        message: String,
+        span: Span,
+    },
 }
 
 impl fmt::Display for CheckError {
@@ -56,6 +60,9 @@ impl fmt::Display for CheckError {
             }
             CheckError::UnboundedLoop { loop_name, .. } => {
                 write!(f, "UnboundedLoop: cannot compute WCET for '{}' without a static iteration bound", loop_name)
+            }
+            CheckError::TypeError { message, .. } => {
+                write!(f, "type error: {}", message)
             }
         }
     }
@@ -386,14 +393,50 @@ pub fn check_fallbacks(program: &Program) -> Vec<CheckError> {
     graph.check_completeness()
 }
 
-/// Run all checker passes
+/// Run all checker passes (types, fallbacks, timing)
 pub fn check_program(
     program: &Program,
     clock_mhz: f64,
 ) -> Vec<CheckError> {
     let mut errors = Vec::new();
+
+    // Phase 1: Type checking
+    let mut type_env = fabric_types::TypeEnv::new();
+    if let Err(type_errors) = type_env.check_program(program) {
+        for e in type_errors {
+            let (message, span) = match e {
+                fabric_types::TypeError::UndefinedVariable { name, span } => {
+                    (format!("undefined variable '{}'", name), span)
+                }
+                fabric_types::TypeError::TypeMismatch { expected, found, span } => {
+                    (format!("expected {}, found {}", expected, found), span)
+                }
+                fabric_types::TypeError::SensorUncertaintyMismatch { expected, found, span } => {
+                    (format!("sensor uncertainty mismatch: expected {}, found {}", expected, found), span)
+                }
+                fabric_types::TypeError::CannotCompareUncertain { span } => {
+                    ("cannot compare uncertain values".to_string(), span)
+                }
+                fabric_types::TypeError::MissingField { ty, field, span } => {
+                    (format!("type '{}' has no field '{}'", ty, field), span)
+                }
+                fabric_types::TypeError::NotAFunction { name, span } => {
+                    (format!("'{}' is not a function", name), span)
+                }
+                fabric_types::TypeError::WrongArity { expected, found, span } => {
+                    (format!("wrong arity: expected {} arguments, found {}", expected, found), span)
+                }
+            };
+            errors.push(CheckError::TypeError { message, span });
+        }
+    }
+
+    // Phase 2: Fallback coverage
     errors.extend(check_fallbacks(program));
+
+    // Phase 3: Timing (IPET)
     errors.extend(check_timing(program, clock_mhz));
+
     errors
 }
 

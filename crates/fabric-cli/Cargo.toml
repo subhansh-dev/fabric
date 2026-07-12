@@ -22,4 +22,3 @@ fabric-types = { path = "../fabric-types" }
 fabric-checker = { path = "../fabric-checker" }
 fabric-codegen = { path = "../fabric-codegen" }
 clap = { version = "4", features = ["derive"] }
-ariadne = "0.4"
