@@ -359,19 +359,19 @@ cargo test
 
 ```bash
 # Check for errors
-./target/release/fabric check --file examples/drone.fab
+./target/release/fabric-lang check --file examples/drone.fab
 
 # Generate Python
-./target/release/fabric build --target python --file examples/drone.fab --output drone.py
+./target/release/fabric-lang build --target python --file examples/drone.fab --output drone.py
 
 # Generate C
-./target/release/fabric build --target c --file examples/drone.fab --output drone.c
+./target/release/fabric-lang build --target c --file examples/drone.fab --output drone.c
 
 # Dump AST
-./target/release/fabric ast --file examples/drone.fab
+./target/release/fabric-lang ast --file examples/drone.fab
 
 # Check timing (IPET analysis)
-./target/release/fabric timing --file examples/drone.fab --clock-mhz 72.0
+./target/release/fabric-lang timing --file examples/drone.fab --clock-mhz 72.0
 ```
 
 ### Using the Webots runner (optional)

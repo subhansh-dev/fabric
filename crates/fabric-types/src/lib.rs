@@ -47,6 +47,12 @@ pub enum ErrorBoundKind {
     Relative,
 }
 
+impl Default for TypeEnv {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeEnv {
     pub fn new() -> Self {
         Self { symbols: HashMap::new(), current_return_type: None }
@@ -106,7 +112,7 @@ impl TypeEnv {
                         .map(|p| type_to_info(&p.ty))
                         .collect();
                     let ret_info = f.return_type.as_ref()
-                        .map(|t| type_to_info(t))
+                        .map(type_to_info)
                         .unwrap_or(TypeInfo::Exact(PrimitiveType::F32));
                     self.define(f.name.name.clone(), TypeInfo::Function {
                         params: param_infos.clone(),
@@ -341,11 +347,8 @@ impl TypeEnv {
                 // Merge produces a Sensor type with the combined uncertainty of all inputs
                 let mut combined = ErrorBoundInfo { value: 0.0, kind: ErrorBoundKind::Absolute };
                 for sensor in sensors {
-                    match self.lookup(&sensor.name) {
-                        Some(TypeInfo::Sensor { error_bound, .. }) => {
-                            combined = combine_bounds(&combined, error_bound);
-                        }
-                        _ => {}
+                    if let Some(TypeInfo::Sensor { error_bound, .. }) = self.lookup(&sensor.name) {
+                        combined = combine_bounds(&combined, error_bound);
                     }
                 }
                 Ok(TypeInfo::Sensor {

@@ -197,7 +197,7 @@ fn extract_sensor_refs(expr: &Expression) -> Vec<String> {
             refs
         }
         Expression::FunctionCall { args, .. } => {
-            args.iter().flat_map(|a| extract_sensor_refs(a)).collect()
+            args.iter().flat_map(extract_sensor_refs).collect()
         }
         Expression::SensorAccess { sensor, .. } => vec![sensor.name.clone()],
         _ => vec![],
@@ -465,6 +465,12 @@ pub struct Cfg {
     pub exit: usize,
 }
 
+impl Default for Cfg {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cfg {
     pub fn new() -> Self {
         Self {
@@ -647,7 +653,7 @@ pub fn solve_ipet(cfg: &Cfg, clock_mhz: f64) -> IpetResult {
     let mut objective = good_lp::Expression::from(0);
     for (i, node) in cfg.nodes.iter().enumerate() {
         let cost = (node.cost_cycles * 1000.0) as i32;
-        objective = objective + cost * x_vars[i];
+        objective += cost * x_vars[i];
     }
 
     let mut model = vars.maximise(objective).using(good_lp::default_solver);
@@ -677,10 +683,10 @@ pub fn solve_ipet(cfg: &Cfg, clock_mhz: f64) -> IpetResult {
             .map(|&j| x_vars[j])
             .fold(good_lp::Expression::from(0), |acc, v| acc + v);
 
-        model.add_constraint(incoming.clone() - x_vars[i] << 0);
-        model.add_constraint(incoming - x_vars[i] >> 0);
-        model.add_constraint(outgoing.clone() - x_vars[i] << 0);
-        model.add_constraint(outgoing - x_vars[i] >> 0);
+        model.add_constraint((incoming.clone() - x_vars[i]) << 0);
+        model.add_constraint((incoming - x_vars[i]) >> 0);
+        model.add_constraint((outgoing.clone() - x_vars[i]) << 0);
+        model.add_constraint((outgoing - x_vars[i]) >> 0);
     }
 
     // Loop bound constraints
@@ -696,8 +702,8 @@ pub fn solve_ipet(cfg: &Cfg, clock_mhz: f64) -> IpetResult {
             let wcet_cycles: f64 = cfg.nodes.iter()
                 .enumerate()
                 .map(|(i, node)| {
-                    let count = solution.eval(&x_vars[i]);
-                    count as f64 * node.cost_cycles
+                    let count = solution.eval(x_vars[i]);
+                    count * node.cost_cycles
                 })
                 .sum();
 
@@ -705,7 +711,7 @@ pub fn solve_ipet(cfg: &Cfg, clock_mhz: f64) -> IpetResult {
 
             let execution_counts: Vec<(String, f64)> = cfg.nodes.iter()
                 .enumerate()
-                .map(|(i, node)| (node.label.clone(), solution.eval(&x_vars[i]) as f64))
+                .map(|(i, node)| (node.label.clone(), solution.eval(x_vars[i])))
                 .collect();
 
             IpetResult {

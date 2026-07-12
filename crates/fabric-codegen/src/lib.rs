@@ -321,7 +321,7 @@ fn emit_python_expr(expr: &Expression) -> String {
             format!("{}[{}]", target.name, idx)
         }
         Expression::FunctionCall { name, args, .. } => {
-            let arg_strs: Vec<String> = args.iter().map(|a| emit_python_expr(a)).collect();
+            let arg_strs: Vec<String> = args.iter().map(emit_python_expr).collect();
             format!("{}({})", name.name, arg_strs.join(", "))
         }
         Expression::DotAccess { target, field, .. } => {
@@ -649,7 +649,7 @@ fn emit_c_expr(expr: &Expression) -> String {
             format!("{}[{}]", target.name, idx)
         }
         Expression::FunctionCall { name, args, .. } => {
-            let arg_strs: Vec<String> = args.iter().map(|a| emit_c_expr(a)).collect();
+            let arg_strs: Vec<String> = args.iter().map(emit_c_expr).collect();
             format!("{}({})", name.name, arg_strs.join(", "))
         }
         Expression::DotAccess { target, field, .. } => {
