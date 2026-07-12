@@ -1,11 +1,51 @@
 use fabric_lexer::tokenize;
 use fabric_parser::Parser;
-use fabric_checker::{check_program, ipet_check_timing};
+use fabric_checker::{check_program, ipet_check_timing, CheckError};
 use fabric_codegen::{CodeEmitter, PythonEmitter, CEmitter};
 
 use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::fs;
+
+fn report_errors(errors: &[CheckError], source: &str, filename: &str) {
+    use ariadne::{Report, ReportKind, Label, Source};
+
+    let source_cache = Source::from(source);
+
+    for err in errors {
+        let (msg, span) = match err {
+            CheckError::MissingFallback { sensor, span } => {
+                (format!("sensor '{}' has no fallback handler", sensor), span)
+            }
+            CheckError::TransitiveMissing { sensor, missing_dep, span } => {
+                (format!("fallback for '{}' depends on '{}' which has no fallback", sensor, missing_dep), span)
+            }
+            CheckError::FallbackCycle { cycle, span } => {
+                (format!("fallback cycle detected: {}", cycle.join(" -> ")), span)
+            }
+            CheckError::DeadlineExceeded { loop_name, deadline_ms, estimated_wcet_ms, span } => {
+                (format!("loop '{}' proven worst-case {:.2}ms exceeds deadline {:.2}ms", loop_name, estimated_wcet_ms, deadline_ms), span)
+            }
+            CheckError::UnknownLoopBound { loop_name, span } => {
+                (format!("cannot determine loop bound for '{}'", loop_name), span)
+            }
+            CheckError::UnboundedLoop { loop_name, span } => {
+                (format!("UnboundedLoop: cannot compute WCET for '{}' without a static iteration bound", loop_name), span)
+            }
+            CheckError::TypeError { message, span } => {
+                (format!("type error: {}", message), span)
+            }
+        };
+
+        let start = span.start;
+        let end = span.end;
+        Report::build(ReportKind::Error, filename, start)
+            .with_label(Label::new((filename, start..end)).with_message(&msg))
+            .finish()
+            .eprint((filename, source_cache.clone()))
+            .ok();
+    }
+}
 
 #[derive(ClapParser)]
 #[command(name = "fabric")]
@@ -107,9 +147,8 @@ fn cmd_check(path: PathBuf) {
     // Phase 3: Check
     let errors = check_program(&program, 72.0); // 72 MHz default clock
     if !errors.is_empty() {
-        for e in &errors {
-            eprintln!("Check error: {}", e);
-        }
+        let filename = path.file_name().unwrap().to_string_lossy();
+        report_errors(&errors, &source, &filename);
         std::process::exit(1);
     }
 
@@ -143,9 +182,8 @@ fn cmd_build(path: PathBuf, target: Target, output: Option<PathBuf>) {
     // Check
     let errors = check_program(&program, 72.0);
     if !errors.is_empty() {
-        for e in &errors {
-            eprintln!("Check error: {}", e);
-        }
+        let filename = path.file_name().unwrap().to_string_lossy();
+        report_errors(&errors, &source, &filename);
         std::process::exit(1);
     }
 

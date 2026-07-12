@@ -77,19 +77,20 @@ struct FallbackNode {
     timeout_ms: f64,
     fallback_fn: String,
     dependencies: Vec<String>,
+    span: Span,
 }
 
 #[derive(Debug, Clone)]
 struct FallbackGraph {
     nodes: HashMap<String, FallbackNode>,
-    all_sensors: HashSet<String>,
+    all_sensors: HashMap<String, Span>,
 }
 
 impl FallbackGraph {
     fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            all_sensors: HashSet::new(),
+            all_sensors: HashMap::new(),
         }
     }
 
@@ -99,23 +100,23 @@ impl FallbackGraph {
             timeout_ms: decl.timeout.to_ms(),
             fallback_fn: format_expr_name(&decl.fallback_expr),
             dependencies: extract_sensor_refs(&decl.fallback_expr),
+            span: decl.span,
         };
         self.nodes.insert(decl.sensor_name.name.clone(), node);
     }
 
-    fn register_sensor(&mut self, name: &str) {
-        self.all_sensors.insert(name.to_string());
+    fn register_sensor(&mut self, name: &str, span: Span) {
+        self.all_sensors.insert(name.to_string(), span);
     }
 
     fn check_completeness(&self) -> Vec<CheckError> {
         let mut errors = Vec::new();
 
-        for sensor in &self.all_sensors {
+        for (sensor, span) in &self.all_sensors {
             if !self.nodes.contains_key(sensor) {
-                // Find where this sensor is used (simplified - would need span info)
                 errors.push(CheckError::MissingFallback {
                     sensor: sensor.clone(),
-                    span: Span::dummy(),
+                    span: *span,
                 });
             }
         }
@@ -123,42 +124,43 @@ impl FallbackGraph {
         // Check transitive dependencies
         for (name, node) in &self.nodes {
             for dep in &node.dependencies {
-                if !self.nodes.contains_key(dep) && self.all_sensors.contains(dep) {
+                if !self.nodes.contains_key(dep) && self.all_sensors.contains_key(dep) {
                     errors.push(CheckError::TransitiveMissing {
                         sensor: name.clone(),
                         missing_dep: dep.clone(),
-                        span: Span::dummy(),
+                        span: node.span,
                     });
                 }
             }
         }
 
         // Check for cycles
-        if let Some(cycle) = self.detect_cycle() {
+        if let Some((cycle, span)) = self.detect_cycle() {
             errors.push(CheckError::FallbackCycle {
                 cycle,
-                span: Span::dummy(),
+                span,
             });
         }
 
         errors
     }
 
-    fn detect_cycle(&self) -> Option<Vec<String>> {
+    fn detect_cycle(&self) -> Option<(Vec<String>, Span)> {
         let mut visited = HashSet::new();
         let mut stack = HashSet::new();
 
         for name in self.nodes.keys() {
-            if let Some(cycle) = self.dfs_cycle(name, &mut visited, &mut stack) {
-                return Some(cycle);
+            if let Some((cycle, span)) = self.dfs_cycle(name, &mut visited, &mut stack) {
+                return Some((cycle, span));
             }
         }
         None
     }
 
-    fn dfs_cycle(&self, node: &str, visited: &mut HashSet<String>, stack: &mut HashSet<String>) -> Option<Vec<String>> {
+    fn dfs_cycle(&self, node: &str, visited: &mut HashSet<String>, stack: &mut HashSet<String>) -> Option<(Vec<String>, Span)> {
         if stack.contains(node) {
-            return Some(vec![node.to_string()]);
+            let span = self.nodes.get(node).map(|n| n.span).unwrap_or(Span::dummy());
+            return Some((vec![node.to_string()], span));
         }
         if visited.contains(node) {
             return None;
@@ -168,9 +170,9 @@ impl FallbackGraph {
 
         if let Some(fallback) = self.nodes.get(node) {
             for dep in &fallback.dependencies {
-                if let Some(mut cycle) = self.dfs_cycle(dep, visited, stack) {
+                if let Some((mut cycle, span)) = self.dfs_cycle(dep, visited, stack) {
                     cycle.insert(0, node.to_string());
-                    return Some(cycle);
+                    return Some((cycle, span));
                 }
             }
         }
@@ -379,7 +381,7 @@ pub fn check_fallbacks(program: &Program) -> Vec<CheckError> {
     // Collect all sensors
     for decl in &program.declarations {
         if let Declaration::Sensor(s) = decl {
-            graph.register_sensor(&s.name.name);
+            graph.register_sensor(&s.name.name, s.span);
         }
     }
 
@@ -806,8 +808,8 @@ mod tests {
     #[test]
     fn test_fallback_graph_complete() {
         let mut graph = FallbackGraph::new();
-        graph.register_sensor("imu");
-        graph.register_sensor("altitude");
+        graph.register_sensor("imu", Span::dummy());
+        graph.register_sensor("altitude", Span::dummy());
 
         let fallback = FallbackDecl {
             sensor_name: Ident::new("altitude", Span::dummy()),

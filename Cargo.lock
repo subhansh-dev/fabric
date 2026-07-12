@@ -169,6 +169,7 @@ dependencies = [
 name = "fabric-lang"
 version = "1.0.0"
 dependencies = [
+ "ariadne",
  "clap",
  "fabric-ast",
  "fabric-checker",
