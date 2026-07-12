@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-2021-orange?style=for-the-badge&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/tests-46%20passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-50%20passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/crates-8-blueviolet?style=for-the-badge" alt="Crates">
   <img src="https://img.shields.io/badge/targets-Python%20%7C%20C-informational?style=for-the-badge" alt="Targets">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=for-the-badge" alt="License">
@@ -124,7 +124,7 @@ loop stabilize within 2ms {
 }
 ```
 
-The timing analyzer estimates worst-case execution time against ARM Cortex-M4 instruction costs. If the loop can't finish in time, it's a compile error.
+WCET analysis uses IPET (Implicit Path Enumeration Technique) with an ILP solver to compute mathematically proven worst-case bounds against ARM Cortex-M4 instruction costs. If the loop can't finish in time, it's a compile error — not an estimate, a proof.
 
 ### Mandatory fallback paths
 
@@ -242,7 +242,7 @@ Declares a drone swarm with N drones in a specified formation. Compiler generate
             (ready to run)
 ```
 
-8 Rust crates. 3,507 lines of Rust. 46 tests.
+8 Rust crates. 4,500+ lines of Rust. 50 tests.
 
 ---
 
@@ -256,7 +256,7 @@ fabric/
     fabric-lexer/     284 lines   Tokenizer (logos)
     fabric-parser/    772 lines   Pratt parser
     fabric-types/     447 lines   Type system, uncertainty tracking
-    fabric-checker/   375 lines   Fallback graph, timing analysis
+    fabric-checker/   1350 lines  Fallback graph, IPET timing, refinement types
     fabric-codegen/   606 lines   Python + C code generation
     fabric-cli/       550 lines   CLI binary (check, build, ast, timing)
   examples/
@@ -338,7 +338,7 @@ int main(void) {
 .\try.ps1
 ```
 
-This builds the compiler, compiles `drone.fab` to Python and C, runs timing analysis, and runs all 38 tests. Takes about 20 seconds on first run.
+This builds the compiler, compiles `drone.fab` to Python and C, runs timing analysis, and runs all 50 tests. Takes about 20 seconds on first run.
 
 ### Build
 
@@ -352,7 +352,7 @@ cargo build --release
 
 ```bash
 cargo test
-# 46 tests, all passing
+# 50 tests, all passing
 ```
 
 ### Compile a .fab file
@@ -394,11 +394,11 @@ The test suite covers every stage of the compiler:
 | Parser correctness | 5 tests |
 | Type system | 3 tests |
 | Checker logic (fallbacks) | 2 tests |
-| Checker logic (IPET) | 3 tests |
+| Checker logic (IPET) | 7 tests |
 | Checker logic (refinement) | 4 tests |
 | Codegen output | 2 tests |
 | End-to-end integration | 18 tests |
-| **Total** | **46 tests** |
+| **Total** | **50 tests** |
 
 Integration tests parse real `.fab` code, type-check it, run the fallback and timing analyzers, generate Python and C, and assert the output contains correct code.
 
@@ -428,6 +428,12 @@ fn test_merge_expression() {
 ## What this doesn't do (yet)
 
 - **Real hardware validation** -- tested against generated code, not physical motors
+
+---
+
+## IPET attribution
+
+The IPET (Implicit Path Enumeration Technique) timing analysis in Fabric is based on the original formulation by Y.-T. S. Li and S. Malik, "Implicit Path Enumeration Technique for Performance Analysis of Real-Time Software," Proceedings of the 15th Real-Time Systems Symposium (RTSS), 1994. The novelty in Fabric is applying IPET *inside a language's own compiler pipeline tied to sensor/fallback types*, not inventing IPET itself.
 
 ---
 

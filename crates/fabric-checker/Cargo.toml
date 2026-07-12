@@ -1,12 +1,13 @@
 [package]
 name = "fabric-checker"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
 fabric-core = { path = "../fabric-core" }
 fabric-ast = { path = "../fabric-ast" }
 fabric-types = { path = "../fabric-types" }
+good_lp = { version = "1", default-features = false, features = ["microlp"] }
 
 [features]
 default = []

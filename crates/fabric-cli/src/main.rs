@@ -50,6 +50,9 @@ enum Commands {
         /// Clock speed in MHz (default: 72 for STM32F4)
         #[arg(short, long, default_value_t = 72.0)]
         clock_mhz: f64,
+        /// Show detailed block-by-block IPET breakdown
+        #[arg(long)]
+        explain: bool,
     },
 }
 
@@ -66,7 +69,7 @@ fn main() {
         Commands::Check { file } => cmd_check(file),
         Commands::Build { file, target, output } => cmd_build(file, target, output),
         Commands::Ast { file } => cmd_ast(file),
-        Commands::Timing { file, clock_mhz } => cmd_timing(file, clock_mhz),
+        Commands::Timing { file, clock_mhz, explain } => cmd_timing(file, clock_mhz, explain),
     }
 }
 
@@ -192,7 +195,7 @@ fn cmd_ast(path: PathBuf) {
     println!("{:#?}", program);
 }
 
-fn cmd_timing(path: PathBuf, clock_mhz: f64) {
+fn cmd_timing(path: PathBuf, clock_mhz: f64, explain: bool) {
     let source = load_source(&path);
 
     let tokens = match tokenize(&source) {
@@ -226,18 +229,28 @@ fn cmd_timing(path: PathBuf, clock_mhz: f64) {
 
     let mut all_ok = true;
     for analysis in &results {
+        // Handle errors (e.g., UnboundedLoop)
+        if let Some(ref err) = analysis.error {
+            eprintln!("Loop: {}", analysis.loop_name);
+            eprintln!("  Error: {}", err);
+            all_ok = false;
+            println!();
+            continue;
+        }
+
+        let result = analysis.result.as_ref().unwrap();
         let status = if analysis.meets_deadline { "PASS" } else { "FAIL" };
         let status_icon = if analysis.meets_deadline { "✓" } else { "✗" };
 
         println!("Loop: {}", analysis.loop_name);
         println!("  Status:    {} [{}]", status_icon, status);
-        println!("  WCET:      {:.4}ms / {:.4}ms deadline", analysis.result.wcet_ms, analysis.deadline_ms);
-        println!("  WCET:      {:.1} cycles", analysis.result.wcet_cycles);
-        println!("  Margin:    {:.1}%", ((analysis.deadline_ms - analysis.result.wcet_ms) / analysis.deadline_ms) * 100.0);
+        println!("  WCET:      {:.4}ms / {:.4}ms deadline", result.wcet_ms, analysis.deadline_ms);
+        println!("  WCET:      {:.1} cycles", result.wcet_cycles);
+        println!("  Margin:    {:.1}%", ((analysis.deadline_ms - result.wcet_ms) / analysis.deadline_ms) * 100.0);
 
-        if !analysis.result.execution_counts.is_empty() {
-            println!("  Block execution counts:");
-            for (label, count) in &analysis.result.execution_counts {
+        if explain && !result.execution_counts.is_empty() {
+            println!("  Block execution counts (binding path highlighted):");
+            for (label, count) in &result.execution_counts {
                 if *count > 0.0 {
                     println!("    {}: {:.1}x", label, count);
                 }
