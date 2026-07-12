@@ -26,6 +26,18 @@ Most robotics software is written in C++ or Python on top of ROS. The language d
 
 Fabric is a small compiled language where these aren't runtime bugs. They're compile-time errors.
 
+### How it compares
+
+| | C++ / Python on ROS | Fabric |
+|---|---|---|
+| Sensor failure handling | Runtime crash, hope the watchdog catches it | Compile error — no fallback = no build |
+| Uncertainty tracking | Ignored entirely | Tracked through types, propagated through math |
+| Deadline enforcement | "Should be fine" + profilers after the fact | WCET analysis at compile time, deadline miss = error |
+| Fallback coverage | Manual testing, code review | BFS graph analysis, circular fallbacks caught |
+| State machine correctness | Runtime panic on unhandled state | Exhaustive match checking, missing case = error |
+| Sensor fusion | Write your own, pray the weights are right | `merge imu gps [0.6, 0.4]` — compiler checks types + uncertainty |
+| Code generation | You write the hardware code | Compiler emits Python (Webots) or C (ARM) from same source |
+
 ---
 
 ## What it actually does
@@ -162,15 +174,55 @@ Parameter types, return types, arity checking, recursive calls. Works.
 ## Compiler pipeline
 
 ```
-.fab source
-  -> Lexer          (logos, 50+ tokens, handles UTF-8 symbols)
-  -> Parser         (hand-rolled Pratt parser, 772 lines)
-  -> Type Checker   (uncertainty propagation, arity checks)
-  -> Fallback Check (BFS graph analysis, cycle detection)
-  -> Timing Check   (WCET estimation, ARM Cortex-M4 costs)
-  -> Code Generator
-       -> Python    (Webots robotics controller)
-       -> C         (ARM Cortex-M / Raspberry Pi)
+.drone.fab (source)
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│  LEXER (fabric-lexer)                               │
+│  logos DFA tokenizer, 55+ tokens, UTF-8 symbols     │
+│  Input: "sensor imu: Sensor<f32, ±0.1>"             │
+│  Output: [Sensor, Ident("imu"), Colon, Sensor, ...] │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│  PARSER (fabric-parser)                             │
+│  Hand-rolled Pratt + recursive descent, 772 lines   │
+│  Input: token stream                                │
+│  Output: Program { sensors, lets, functions, ... }  │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│  TYPE CHECKER (fabric-types)                        │
+│  Uncertainty propagation, arity checks, return types│
+│  Catches: wrong args, type mismatches, bad merges   │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│  SAFETY CHECKER (fabric-checker)                    │
+│  ┌─────────────────────┐ ┌────────────────────────┐ │
+│  │ Fallback Graph      │ │ Cost Model (ARM M4)    │ │
+│  │ BFS cycle detection │ │ WCET estimation        │ │
+│  │ Missing path = ERR  │ │ Deadline miss = ERR    │ │
+│  └─────────────────────┘ └────────────────────────┘ │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│  CODE GENERATOR (fabric-codegen)                    │
+│  Two backends, same AST:                            │
+│  ┌──────────────────┐  ┌──────────────────────────┐ │
+│  │ Python emitter   │  │ C emitter                │ │
+│  │ Webots robotics  │  │ ARM Cortex-M / RPi       │ │
+│  │ numpy, ternary   │  │ hal_sleep, motor_set     │ │
+│  └──────────────────┘  └──────────────────────────┘ │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+            drone.py / drone.c
+            (ready to run)
 ```
 
 8 Rust crates. 3,507 lines of Rust. 38 tests.
