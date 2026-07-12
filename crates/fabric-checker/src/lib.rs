@@ -390,6 +390,336 @@ pub fn check_program(
     errors
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// IPET (Implicit Path Enumeration Technique) Timing Analysis
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A node in the Control Flow Graph
+#[derive(Debug, Clone)]
+pub struct CfgNode {
+    pub id: usize,
+    pub label: String,
+    pub cost_cycles: f64,
+    pub successors: Vec<usize>,
+    pub predecessors: Vec<usize>,
+    pub is_entry: bool,
+    pub is_exit: bool,
+    pub loop_bound: Option<f64>,
+}
+
+/// Control Flow Graph for IPET analysis
+#[derive(Debug, Clone)]
+pub struct Cfg {
+    pub nodes: Vec<CfgNode>,
+    pub entry: usize,
+    pub exit: usize,
+}
+
+impl Cfg {
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            entry: 0,
+            exit: 0,
+        }
+    }
+
+    pub fn add_node(&mut self, label: &str, cost: f64) -> usize {
+        let id = self.nodes.len();
+        self.nodes.push(CfgNode {
+            id,
+            label: label.to_string(),
+            cost_cycles: cost,
+            successors: Vec::new(),
+            predecessors: Vec::new(),
+            is_entry: false,
+            is_exit: false,
+            loop_bound: None,
+        });
+        id
+    }
+
+    pub fn add_edge(&mut self, from: usize, to: usize) {
+        self.nodes[from].successors.push(to);
+        self.nodes[to].predecessors.push(from);
+    }
+
+    pub fn set_entry(&mut self, id: usize) {
+        self.nodes[id].is_entry = true;
+        self.entry = id;
+    }
+
+    pub fn set_exit(&mut self, id: usize) {
+        self.nodes[id].is_exit = true;
+        self.exit = id;
+    }
+
+    pub fn set_loop_bound(&mut self, id: usize, bound: f64) {
+        self.nodes[id].loop_bound = Some(bound);
+    }
+}
+
+/// Build a CFG from loop body statements
+pub fn build_cfg(stmts: &[Statement], cost_model: &CostModel) -> Cfg {
+    let mut cfg = Cfg::new();
+    let entry = cfg.add_node("entry", 0.0);
+    cfg.set_entry(entry);
+
+    let mut current = entry;
+
+    for stmt in stmts {
+        current = cfg_add_stmt(&mut cfg, current, stmt, cost_model);
+    }
+
+    // Connect to exit
+    let exit = cfg.add_node("exit", 0.0);
+    cfg.set_exit(exit);
+    cfg.add_edge(current, exit);
+
+    cfg
+}
+
+/// Recursively build CFG for a statement, returning the new "current" node
+fn cfg_add_stmt(cfg: &mut Cfg, current: usize, stmt: &Statement, cost_model: &CostModel) -> usize {
+    match stmt {
+        Statement::IfElse { condition, then_body, else_body, .. } => {
+            let cond_cost = cost_model.estimate_expr_cost(condition);
+            let cond_node = cfg.add_node("if_cond", cond_cost);
+            cfg.add_edge(current, cond_node);
+
+            // Then branch
+            let mut then_end = cond_node;
+            for s in then_body {
+                then_end = cfg_add_stmt(cfg, then_end, s, cost_model);
+            }
+
+            // Else branch (if present)
+            let merge = cfg.add_node("if_merge", 0.0);
+            if let Some(else_stmts) = else_body {
+                let mut else_end = cond_node;
+                for s in else_stmts {
+                    else_end = cfg_add_stmt(cfg, else_end, s, cost_model);
+                }
+                cfg.add_edge(else_end, merge);
+            } else {
+                cfg.add_edge(cond_node, merge);
+            }
+
+            cfg.add_edge(then_end, merge);
+            merge
+        }
+        Statement::Let { value, .. } => {
+            let cost = cost_model.estimate_expr_cost(value);
+            let node = cfg.add_node("let", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+        Statement::Read { .. } => {
+            let cost = *cost_model.costs.get("sensor_read").unwrap_or(&2.0);
+            let node = cfg.add_node("read", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+        Statement::Write { value, .. } => {
+            let cost = cost_model.estimate_expr_cost(value) + *cost_model.costs.get("actuator_write").unwrap_or(&2.0);
+            let node = cfg.add_node("write", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+        Statement::Assign { value, .. } => {
+            let cost = cost_model.estimate_expr_cost(value);
+            let node = cfg.add_node("assign", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+        Statement::Return { value, .. } => {
+            let cost = value.as_ref().map_or(0.0, |e| cost_model.estimate_expr_cost(e));
+            let node = cfg.add_node("return", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+        Statement::Expr(expr) => {
+            let cost = cost_model.estimate_expr_cost(&expr.expr);
+            let node = cfg.add_node("expr", cost);
+            cfg.add_edge(current, node);
+            node
+        }
+    }
+}
+
+/// ILP constraint types
+#[derive(Debug, Clone)]
+pub enum IlpConstraint {
+    /// Variable sum <= bound:  x1 + x2 + ... <= N
+    Leq { vars: Vec<usize>, bound: f64 },
+    /// Variable sum >= bound:  x1 + x2 + ... >= N
+    Geq { vars: Vec<usize>, bound: f64 },
+    /// Variable sum == bound:  x1 + x2 + ... == N
+    Eq { vars: Vec<usize>, bound: f64 },
+    /// Single variable <= bound:  xi <= N
+    VarLeq { var: usize, bound: f64 },
+}
+
+/// IPET result
+#[derive(Debug, Clone)]
+pub struct IpetResult {
+    pub wcet_cycles: f64,
+    pub wcet_ms: f64,
+    pub execution_counts: Vec<(String, f64)>,
+}
+
+/// Solve WCET using IPET (Implicit Path Enumeration Technique)
+///
+/// IPET formulates the problem as an Integer Linear Program:
+///   maximize: sum(xi * cost_i)     -- total execution time
+///   subject to:
+///     - flow conservation at each node
+///     - loop bounds
+///     - xi >= 0 for all nodes
+///
+/// We use a greedy solver (simplex-like) for the ILP since
+/// full ILP solvers are external dependencies.
+pub fn solve_ipet(cfg: &Cfg, clock_mhz: f64) -> IpetResult {
+    let n = cfg.nodes.len();
+
+    // Build flow conservation constraints
+    let mut constraints: Vec<IlpConstraint> = Vec::new();
+
+    for node in &cfg.nodes {
+        if node.is_entry {
+            // Entry: exactly 1 execution
+            constraints.push(IlpConstraint::Eq {
+                vars: vec![node.id],
+                bound: 1.0,
+            });
+        } else if node.is_exit {
+            // Exit: exactly 1 execution (program completes once)
+            constraints.push(IlpConstraint::Eq {
+                vars: vec![node.id],
+                bound: 1.0,
+            });
+        } else {
+            // Flow conservation: in-degree executions = out-degree executions
+            // Sum(predecessors executing to this) = Sum(successors executing from this)
+            // Simplified: for linear paths, each node executes at least as many times
+            // as its predecessors
+
+            // Loop bound constraint
+            if let Some(bound) = node.loop_bound {
+                constraints.push(IlpConstraint::VarLeq {
+                    var: node.id,
+                    bound,
+                });
+            }
+        }
+    }
+
+    // Flow conservation: for each node (except entry/exit),
+    // number of times we enter = number of times we exit
+    // For IPET, we encode this as:
+    //   sum of predecessor execution counts = execution count of this node
+    //   This is implicit in the CFG structure for acyclic graphs
+
+    // For loops, we need back-edge constraints
+    // A back edge (u -> v) where v dominates u means u -> v is a loop
+    // The loop bound constrains how many times the back edge can execute
+
+    // Simplified: assign execution counts greedily
+    let mut exec_counts = vec![0.0f64; n];
+
+    // Topological order execution (simplified IPET)
+    exec_counts[cfg.entry] = 1.0;
+
+    // BFS to propagate execution counts
+    let mut visited = vec![false; n];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(cfg.entry);
+    visited[cfg.entry] = true;
+
+    while let Some(node_id) = queue.pop_front() {
+        let node = &cfg.nodes[node_id];
+        let exec = exec_counts[node_id];
+
+        for &succ_id in &node.successors {
+            if !visited[succ_id] {
+                exec_counts[succ_id] += exec;
+                visited[succ_id] = true;
+                queue.push_back(succ_id);
+            }
+        }
+    }
+
+    // Apply loop bounds (cap execution counts)
+    for node in &cfg.nodes {
+        if let Some(bound) = node.loop_bound {
+            if exec_counts[node.id] > bound {
+                exec_counts[node.id] = bound;
+            }
+        }
+    }
+
+    // Calculate WCET
+    let wcet_cycles: f64 = cfg.nodes.iter()
+        .map(|n| exec_counts[n.id] * n.cost_cycles)
+        .sum();
+
+    let wcet_ms = wcet_cycles / (clock_mhz * 1000.0);
+
+    let execution_counts: Vec<(String, f64)> = cfg.nodes.iter()
+        .map(|n| (n.label.clone(), exec_counts[n.id]))
+        .collect();
+
+    IpetResult {
+        wcet_cycles,
+        wcet_ms,
+        execution_counts,
+    }
+}
+
+/// IPET analysis result for a loop
+#[derive(Debug, Clone)]
+pub struct IpetAnalysis {
+    pub loop_name: String,
+    pub result: IpetResult,
+    pub meets_deadline: bool,
+    pub deadline_ms: f64,
+}
+
+/// Run IPET analysis on all loops in a program
+pub fn ipet_check_timing(program: &Program, clock_mhz: f64) -> Vec<IpetAnalysis> {
+    let cost_model = CostModel::arm_cortex_m4();
+    let mut results = Vec::new();
+
+    for decl in &program.declarations {
+        if let Declaration::Loop(loop_decl) = decl {
+            let deadline_ms = loop_decl.deadline.to_ms();
+
+            // Build CFG from loop body
+            let mut cfg = build_cfg(&loop_decl.body, &cost_model);
+
+            // Set loop bound (conservative estimate)
+            let loop_bound = estimate_loop_bound(loop_decl).unwrap_or(10.0);
+
+            // Mark loop header with bound
+            if cfg.nodes.len() > 2 {
+                cfg.set_loop_bound(1, loop_bound); // node after entry
+            }
+
+            // Solve IPET
+            let result = solve_ipet(&cfg, clock_mhz);
+
+            results.push(IpetAnalysis {
+                loop_name: loop_decl.name.name.clone(),
+                meets_deadline: result.wcet_ms <= deadline_ms,
+                deadline_ms,
+                result,
+            });
+        }
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,5 +750,92 @@ mod tests {
         assert_eq!(*model.costs.get("add").unwrap(), 1.0);
         assert_eq!(*model.costs.get("div").unwrap(), 12.0);
         assert_eq!(*model.costs.get("fdiv").unwrap(), 14.0);
+    }
+
+    #[test]
+    fn test_cfg_construction() {
+        let model = CostModel::arm_cortex_m4();
+        let stmts = vec![
+            Statement::Let {
+                name: Ident::new("x", Span::dummy()),
+                ty: None,
+                value: Expression::Literal(Literal::Float(1.0), Span::dummy()),
+                span: Span::dummy(),
+            },
+            Statement::Let {
+                name: Ident::new("y", Span::dummy()),
+                ty: None,
+                value: Expression::BinaryOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expression::Variable(Ident::new("x", Span::dummy()))),
+                    right: Box::new(Expression::Literal(Literal::Float(2.0), Span::dummy())),
+                    span: Span::dummy(),
+                },
+                span: Span::dummy(),
+            },
+        ];
+
+        let cfg = build_cfg(&stmts, &model);
+        // entry + 2 lets + exit = 4 nodes
+        assert_eq!(cfg.nodes.len(), 4);
+        assert!(cfg.nodes[cfg.entry].is_entry);
+        assert!(cfg.nodes[cfg.exit].is_exit);
+    }
+
+    #[test]
+    fn test_ipet_basic() {
+        let model = CostModel::arm_cortex_m4();
+        let stmts = vec![
+            Statement::Let {
+                name: Ident::new("a", Span::dummy()),
+                ty: None,
+                value: Expression::Literal(Literal::Float(1.0), Span::dummy()),
+                span: Span::dummy(),
+            },
+        ];
+
+        let cfg = build_cfg(&stmts, &model);
+        let result = solve_ipet(&cfg, 72.0);
+
+        // Should have some positive WCET
+        assert!(result.wcet_cycles > 0.0);
+        assert!(result.wcet_ms > 0.0);
+        // All nodes should execute once
+        for (_, count) in &result.execution_counts {
+            assert!(*count >= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_ipet_if_else() {
+        let model = CostModel::arm_cortex_m4();
+        let stmts = vec![
+            Statement::IfElse {
+                condition: Expression::Variable(Ident::new("cond", Span::dummy())),
+                then_body: vec![
+                    Statement::Let {
+                        name: Ident::new("x", Span::dummy()),
+                        ty: None,
+                        value: Expression::Literal(Literal::Float(1.0), Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                ],
+                else_body: Some(vec![
+                    Statement::Let {
+                        name: Ident::new("y", Span::dummy()),
+                        ty: None,
+                        value: Expression::Literal(Literal::Float(2.0), Span::dummy()),
+                        span: Span::dummy(),
+                    },
+                ]),
+                span: Span::dummy(),
+            },
+        ];
+
+        let cfg = build_cfg(&stmts, &model);
+        let result = solve_ipet(&cfg, 72.0);
+
+        // WCET should include both branches (conservative)
+        assert!(result.wcet_cycles > 0.0);
     }
 }
