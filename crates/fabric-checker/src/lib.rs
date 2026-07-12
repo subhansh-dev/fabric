@@ -48,7 +48,7 @@ impl fmt::Display for CheckError {
                 write!(f, "fallback cycle detected: {}", cycle.join(" -> "))
             }
             CheckError::DeadlineExceeded { loop_name, deadline_ms, estimated_wcet_ms, .. } => {
-                write!(f, "loop '{}' estimated WCET {:.2}ms exceeds deadline {:.2}ms",
+                write!(f, "loop '{}' proven worst-case {:.2}ms exceeds deadline {:.2}ms",
                     loop_name, estimated_wcet_ms, deadline_ms)
             }
             CheckError::UnknownLoopBound { loop_name, .. } => {
