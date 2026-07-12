@@ -14,7 +14,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$exe = ".\target\release\fabric.exe"
+$exe = ".\target\release\fabric-lang.exe"
 
 Write-Host ""
 Write-Host "Checking drone.fab..." -ForegroundColor Yellow

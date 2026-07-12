@@ -1,10 +1,16 @@
 [package]
-name = "fabric-cli"
-version = "0.1.0"
+name = "fabric-lang"
+version = "1.0.0"
 edition = "2021"
+description = "CLI compiler for the Fabric robotics DSL — safety-checked real-time drone/robot code"
+license = "MIT"
+repository = "https://github.com/subhansh-dev/fabric"
+keywords = ["robotics", "dsl", "compiler", "cli", "real-time"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "../../README.md"
 
 [[bin]]
-name = "fabric"
+name = "fabric-lang"
 path = "src/main.rs"
 
 [dependencies]

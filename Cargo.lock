@@ -134,14 +134,14 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "fabric-ast"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "fabric-core",
 ]
 
 [[package]]
 name = "fabric-checker"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "fabric-ast",
  "fabric-core",
@@ -150,8 +150,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "fabric-cli"
-version = "0.1.0"
+name = "fabric-codegen"
+version = "1.0.0"
+dependencies = [
+ "fabric-ast",
+ "fabric-core",
+ "fabric-types",
+]
+
+[[package]]
+name = "fabric-core"
+version = "1.0.0"
+dependencies = [
+ "ariadne",
+]
+
+[[package]]
+name = "fabric-lang"
+version = "1.0.0"
 dependencies = [
  "ariadne",
  "clap",
@@ -165,24 +181,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "fabric-codegen"
-version = "0.1.0"
-dependencies = [
- "fabric-ast",
- "fabric-core",
- "fabric-types",
-]
-
-[[package]]
-name = "fabric-core"
-version = "0.1.0"
-dependencies = [
- "ariadne",
-]
-
-[[package]]
 name = "fabric-lexer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "fabric-core",
  "logos",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "fabric-parser"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ariadne",
  "fabric-ast",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "fabric-types"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "fabric-ast",
  "fabric-core",

@@ -1,7 +1,13 @@
 [package]
 name = "fabric-types"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+description = "Type system with uncertainty propagation for the Fabric robotics DSL"
+license = "MIT"
+repository = "https://github.com/subhansh-dev/fabric"
+keywords = ["robotics", "dsl", "type-system", "uncertainty", "real-time"]
+categories = ["development-tools"]
+readme = "../../README.md"
 
 [dependencies]
 fabric-core = { path = "../fabric-core" }
