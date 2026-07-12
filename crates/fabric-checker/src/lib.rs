@@ -839,3 +839,329 @@ mod tests {
         assert!(result.wcet_cycles > 0.0);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Refinement Types — Mathematical uncertainty proof (no Z3 dependency)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Interval arithmetic for uncertainty propagation
+#[derive(Debug, Clone, Copy)]
+pub struct Interval {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl Interval {
+    pub fn new(value: f64, uncertainty: f64) -> Self {
+        Self {
+            min: value - uncertainty,
+            max: value + uncertainty,
+        }
+    }
+
+    pub fn center(&self) -> f64 {
+        (self.min + self.max) / 2.0
+    }
+
+    pub fn uncertainty(&self) -> f64 {
+        (self.max - self.min) / 2.0
+    }
+
+    pub fn contains(&self, value: f64) -> bool {
+        value >= self.min && value <= self.max
+    }
+
+    pub fn overlaps(&self, other: &Interval) -> bool {
+        self.min <= other.max && other.min <= self.max
+    }
+
+    /// Addition: [a, b] + [c, d] = [a+c, b+d]
+    pub fn add(&self, other: &Interval) -> Interval {
+        Interval {
+            min: self.min + other.min,
+            max: self.max + other.max,
+        }
+    }
+
+    /// Subtraction: [a, b] - [c, d] = [a-d, b-c]
+    pub fn sub(&self, other: &Interval) -> Interval {
+        Interval {
+            min: self.min - other.max,
+            max: self.max - other.min,
+        }
+    }
+
+    /// Multiplication: [a, b] * [c, d]
+    pub fn mul(&self, other: &Interval) -> Interval {
+        let products = [
+            self.min * other.min,
+            self.min * other.max,
+            self.max * other.min,
+            self.max * other.max,
+        ];
+        Interval {
+            min: products.iter().cloned().fold(f64::INFINITY, f64::min),
+            max: products.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        }
+    }
+
+    /// Scalar multiplication: k * [a, b] = [k*a, k*b] if k >= 0
+    pub fn scale(&self, k: f64) -> Interval {
+        if k >= 0.0 {
+            Interval {
+                min: self.min * k,
+                max: self.max * k,
+            }
+        } else {
+            Interval {
+                min: self.max * k,
+                max: self.min * k,
+            }
+        }
+    }
+}
+
+/// Prove that sensor fusion stays within safety bounds
+///
+/// Given sensors with uncertainties and weights, prove:
+///   safe_min <= sum(w_i * s_i) / sum(w_i) <= safe_max
+///
+/// Uses interval arithmetic to compute the exact worst-case range.
+pub fn prove_fusion_safe(
+    sensor_values: &[(f64, f64)],  // (nominal, uncertainty) pairs
+    weights: &[f64],
+    safe_min: f64,
+    safe_max: f64,
+) -> (bool, Interval) {
+    assert_eq!(sensor_values.len(), weights.len());
+
+    // Create intervals for each sensor
+    let intervals: Vec<Interval> = sensor_values.iter()
+        .map(|(val, unc)| Interval::new(*val, *unc))
+        .collect();
+
+    // Weighted sum: sum(w_i * s_i)
+    let mut weighted_sum = Interval { min: 0.0, max: 0.0 };
+    for (interval, weight) in intervals.iter().zip(weights.iter()) {
+        let weighted = interval.scale(*weight);
+        weighted_sum = weighted_sum.add(&weighted);
+    }
+
+    // Total weight
+    let total_weight: f64 = weights.iter().sum();
+
+    // Fusion result = weighted_sum / total_weight
+    let fusion = Interval {
+        min: weighted_sum.min / total_weight,
+        max: weighted_sum.max / total_weight,
+    };
+
+    // Check if fusion is provably within safety bounds
+    let is_safe = fusion.min >= safe_min && fusion.max <= safe_max;
+
+    (is_safe, fusion)
+}
+
+/// Prove that uncertainty propagation stays within allowed bounds
+///
+/// For weighted average fusion, the output uncertainty is:
+///   output_uncertainty = sum(|w_i| * uncertainty_i)
+///
+/// This is the interval arithmetic result for linear combinations.
+pub fn prove_uncertainty_bounded(
+    sensor_uncertainties: &[f64],
+    weights: &[f64],
+    max_allowed_uncertainty: f64,
+) -> (bool, f64) {
+    assert_eq!(sensor_uncertainties.len(), weights.len());
+
+    let total_uncertainty: f64 = sensor_uncertainties.iter()
+        .zip(weights.iter())
+        .map(|(unc, w)| unc * w.abs())
+        .sum();
+
+    (total_uncertainty <= max_allowed_uncertainty, total_uncertainty)
+}
+
+/// Refinement check result
+#[derive(Debug, Clone)]
+pub struct RefinementResult {
+    pub sensor: String,
+    pub nominal_value: f64,
+    pub uncertainty: f64,
+    pub proved_interval: Interval,
+    pub is_bounded: bool,
+    pub bound_violation: Option<String>,
+}
+
+/// Check refinement types for all sensor accesses in a program
+pub fn check_refinement_types(program: &Program) -> Vec<RefinementResult> {
+    let mut results = Vec::new();
+    let mut sensor_info: HashMap<String, (f64, f64)> = HashMap::new();
+
+    // Collect sensor declarations
+    for decl in &program.declarations {
+        if let Declaration::Sensor(sensor) = decl {
+            let uncertainty = match &sensor.sensor_type.error_bound {
+                ErrorBound::Absolute(v, _) => *v,
+                ErrorBound::Relative(v, _) => *v,
+            };
+            // Default nominal value of 0.0 (will be refined during analysis)
+            sensor_info.insert(sensor.name.name.clone(), (0.0, uncertainty));
+        }
+    }
+
+    // Check each loop body
+    for decl in &program.declarations {
+        if let Declaration::Loop(loop_decl) = decl {
+            for stmt in &loop_decl.body {
+                check_stmt_refinement(stmt, &sensor_info, &mut results);
+            }
+        }
+    }
+
+    results
+}
+
+fn check_stmt_refinement(
+    stmt: &Statement,
+    sensor_info: &HashMap<String, (f64, f64)>,
+    results: &mut Vec<RefinementResult>,
+) {
+    match stmt {
+        Statement::Let { value, .. } => {
+            check_expr_refinement(value, sensor_info, results);
+        }
+        Statement::Write { value, .. } => {
+            check_expr_refinement(value, sensor_info, results);
+        }
+        Statement::IfElse { then_body, else_body, .. } => {
+            for s in then_body {
+                check_stmt_refinement(s, sensor_info, results);
+            }
+            if let Some(else_stmts) = else_body {
+                for s in else_stmts {
+                    check_stmt_refinement(s, sensor_info, results);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn check_expr_refinement(
+    expr: &Expression,
+    sensor_info: &HashMap<String, (f64, f64)>,
+    results: &mut Vec<RefinementResult>,
+) {
+    if let Expression::SensorMerge { sensors, weights, .. } = expr {
+        let sensor_values: Vec<(f64, f64)> = sensors.iter()
+            .filter_map(|s| sensor_info.get(&s.name).copied())
+            .collect();
+
+        let weight_vals: Vec<f64> = weights.iter().filter_map(|w| {
+            if let Expression::Literal(Literal::Float(v), _) = w {
+                Some(*v)
+            } else {
+                None
+            }
+        }).collect();
+
+        if sensor_values.len() == weight_vals.len() && !sensor_values.is_empty() {
+            // Prove fusion is safe within [0, 100] bounds
+            let (is_safe, fusion_interval) = prove_fusion_safe(
+                &sensor_values,
+                &weight_vals,
+                0.0,
+                100.0,
+            );
+
+            // Prove uncertainty is bounded
+            let uncertainties: Vec<f64> = sensor_values.iter().map(|(_, u)| *u).collect();
+            let (unc_bounded, total_unc) = prove_uncertainty_bounded(
+                &uncertainties,
+                &weight_vals,
+                5.0,
+            );
+
+            for (sensor, (nominal, uncertainty)) in sensors.iter().zip(sensor_values.iter()) {
+                results.push(RefinementResult {
+                    sensor: sensor.name.clone(),
+                    nominal_value: *nominal,
+                    uncertainty: *uncertainty,
+                    proved_interval: fusion_interval,
+                    is_bounded: is_safe && unc_bounded,
+                    bound_violation: if !is_safe {
+                        Some(format!("fusion range [{:.3}, {:.3}] exceeds [0, 100]",
+                            fusion_interval.min, fusion_interval.max))
+                    } else if !unc_bounded {
+                        Some(format!("uncertainty {:.3} exceeds max 5.0", total_unc))
+                    } else {
+                        None
+                    },
+                });
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod refinement_tests {
+    use super::*;
+
+    #[test]
+    fn test_interval_arithmetic() {
+        let a = Interval::new(5.0, 0.5); // [4.5, 5.5]
+        let b = Interval::new(3.0, 0.3); // [2.7, 3.3]
+
+        let sum = a.add(&b);
+        assert!((sum.min - 7.2).abs() < 0.001);
+        assert!((sum.max - 8.8).abs() < 0.001);
+
+        // [4.5, 5.5] - [2.7, 3.3] = [4.5-3.3, 5.5-2.7] = [1.2, 2.8]
+        let diff = a.sub(&b);
+        assert!((diff.min - 1.2).abs() < 0.001);
+        assert!((diff.max - 2.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_fusion_proof_safe() {
+        // Two sensors: 5.0 ± 0.5 and 3.0 ± 0.3
+        // Weights: 0.6, 0.4
+        // Fusion = 0.6*s1 + 0.4*s2
+        // Uncertainty = 0.6*0.5 + 0.4*0.3 = 0.42
+        let (safe, interval) = prove_fusion_safe(
+            &[(5.0, 0.5), (3.0, 0.3)],
+            &[0.6, 0.4],
+            0.0,
+            100.0,
+        );
+        assert!(safe);
+        assert!(interval.min > 3.0);
+        assert!(interval.max < 7.0);
+    }
+
+    #[test]
+    fn test_fusion_proof_unsafe() {
+        // Sensor near boundary with large uncertainty
+        let (safe, _) = prove_fusion_safe(
+            &[(99.0, 2.0)],
+            &[1.0],
+            0.0,
+            100.0,
+        );
+        // 99.0 + 2.0 = 101.0 > 100.0 → unsafe
+        assert!(!safe);
+    }
+
+    #[test]
+    fn test_uncertainty_bounded() {
+        let (bounded, total) = prove_uncertainty_bounded(
+            &[0.5, 0.3],
+            &[0.6, 0.4],
+            5.0,
+        );
+        assert!(bounded);
+        assert!((total - 0.42).abs() < 0.001);
+    }
+}

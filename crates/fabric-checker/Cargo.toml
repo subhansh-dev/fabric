@@ -1,9 +1,12 @@
 [package]
 name = "fabric-checker"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
 fabric-core = { path = "../fabric-core" }
 fabric-ast = { path = "../fabric-ast" }
 fabric-types = { path = "../fabric-types" }
+
+[features]
+default = []

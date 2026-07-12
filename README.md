@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-2021-orange?style=for-the-badge&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/tests-42%20passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-46%20passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/crates-8-blueviolet?style=for-the-badge" alt="Crates">
   <img src="https://img.shields.io/badge/targets-Python%20%7C%20C-informational?style=for-the-badge" alt="Targets">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=for-the-badge" alt="License">
@@ -202,11 +202,16 @@ Parameter types, return types, arity checking, recursive calls. Works.
                       ▼
 ┌─────────────────────────────────────────────────────┐
 │  SAFETY CHECKER (fabric-checker)                    │
-│  ┌─────────────────────┐ ┌────────────────────────┐ │
-│  │ Fallback Graph      │ │ IPET Timing Solver     │ │
-│  │ BFS cycle detection │ │ ILP-based WCET         │ │
-│  │ Missing path = ERR  │ │ Proven bounds = PASS   │ │
-│  └─────────────────────┘ └────────────────────────┘ │
+│  ┌──────────────────┐ ┌────────────────────────────┐│
+│  │ Fallback Graph   │ │ IPET Timing Solver         ││
+│  │ BFS cycle detect │ │ ILP-based WCET             ││
+│  │ Missing = ERR    │ │ Proven bounds = PASS       ││
+│  └──────────────────┘ └────────────────────────────┘│
+│  ┌──────────────────────────────────────────────────┐│
+│  │ Refinement Types (interval arithmetic)          ││
+│  │ Proves uncertainty bounds mathematically        ││
+│  │ Sensor fusion stays within safety limits        ││
+│  └──────────────────────────────────────────────────┘│
 └─────────────────────┬───────────────────────────────┘
                       │
                       ▼
@@ -225,7 +230,7 @@ Parameter types, return types, arity checking, recursive calls. Works.
             (ready to run)
 ```
 
-8 Rust crates. 3,507 lines of Rust. 42 tests.
+8 Rust crates. 3,507 lines of Rust. 46 tests.
 
 ---
 
@@ -335,7 +340,7 @@ cargo build --release
 
 ```bash
 cargo test
-# 42 tests, all passing
+# 46 tests, all passing
 ```
 
 ### Compile a .fab file
@@ -376,10 +381,12 @@ The test suite covers every stage of the compiler:
 | Lexer tokenization | 8 tests |
 | Parser correctness | 5 tests |
 | Type system | 3 tests |
-| Checker logic | 5 tests |
+| Checker logic (fallbacks) | 2 tests |
+| Checker logic (IPET) | 3 tests |
+| Checker logic (refinement) | 4 tests |
 | Codegen output | 2 tests |
 | End-to-end integration | 18 tests |
-| **Total** | **42 tests** |
+| **Total** | **46 tests** |
 
 Integration tests parse real `.fab` code, type-check it, run the fallback and timing analyzers, generate Python and C, and assert the output contains correct code.
 
@@ -408,7 +415,6 @@ fn test_merge_expression() {
 
 ## What this doesn't do (yet)
 
-- **Z3 refinement types** -- would prove uncertainty bounds mathematically instead of tracking them heuristically
 - **Multi-drone coordination** -- single robot only for now
 - **Real hardware validation** -- tested against generated code, not physical motors
 

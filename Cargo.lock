@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "fabric-checker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fabric-ast",
  "fabric-core",
