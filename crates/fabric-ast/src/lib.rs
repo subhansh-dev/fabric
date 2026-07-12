@@ -16,6 +16,7 @@ pub enum Declaration {
     Loop(LoopDecl),
     Fallback(FallbackDecl),
     Function(FunctionDecl),
+    Drone(DroneDecl),
 }
 
 impl Declaration {
@@ -27,8 +28,30 @@ impl Declaration {
             Declaration::Loop(d) => d.span,
             Declaration::Fallback(d) => d.span,
             Declaration::Function(d) => d.span,
+            Declaration::Drone(d) => d.span,
         }
     }
+}
+
+/// Drone swarm declaration
+/// drone swarm { count: 4, spacing: 2.0m, formation: grid }
+#[derive(Debug, Clone)]
+pub struct DroneDecl {
+    pub name: Ident,
+    pub count: u32,
+    pub spacing: f64,
+    pub formation: Formation,
+    pub fallback_expr: Option<Expression>,
+    pub span: Span,
+}
+
+/// Drone formation types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Formation {
+    Grid,
+    Circle,
+    Line,
+    Diamond,
 }
 
 /// sensor imu: IMU

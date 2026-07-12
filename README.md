@@ -169,6 +169,18 @@ fn dead_reckoning(imu_val: f32) -> f32 {
 
 Parameter types, return types, arity checking, recursive calls. Works.
 
+### Drone swarm declarations
+
+```
+drone swarm {
+    count: 4
+    spacing: 2.0
+    formation: grid
+}
+```
+
+Declares a drone swarm with N drones in a specified formation. Compiler generates Webots supervisor code that spawns and coordinates the swarm.
+
 ---
 
 ## Compiler pipeline
@@ -415,7 +427,6 @@ fn test_merge_expression() {
 
 ## What this doesn't do (yet)
 
-- **Multi-drone coordination** -- single robot only for now
 - **Real hardware validation** -- tested against generated code, not physical motors
 
 ---

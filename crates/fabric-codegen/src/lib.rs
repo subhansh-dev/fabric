@@ -140,6 +140,66 @@ impl CodeEmitter for PythonEmitter {
             }
         }
 
+        // Emit drone swarm controller if any drone declarations
+        let drones: Vec<&DroneDecl> = program.declarations.iter()
+            .filter_map(|d| match d { Declaration::Drone(dr) => Some(dr), _ => None })
+            .collect();
+
+        if !drones.is_empty() {
+            writeln!(out).unwrap();
+            writeln!(out, "# ─── Drone Swarm Controller ───").unwrap();
+            for drone in &drones {
+                writeln!(out, "# Swarm: {} ({} drones, spacing: {:.1}m, formation: {:?})",
+                    drone.name.name, drone.count, drone.spacing, drone.formation).unwrap();
+                writeln!(out, "NUM_DRONES = {}", drone.count).unwrap();
+                writeln!(out, "SPACING = {:.1}", drone.spacing).unwrap();
+                writeln!(out, "TARGET_HEIGHT = 3.0").unwrap();
+                writeln!(out).unwrap();
+
+                // Supervisor spawn script
+                writeln!(out, "def spawn_swarm(supervisor):").unwrap();
+                writeln!(out, "    \"\"\"Spawn drone swarm in {:?} formation\"\"\"", drone.formation).unwrap();
+                writeln!(out, "    import math").unwrap();
+                writeln!(out, "    drones = []").unwrap();
+                writeln!(out, "    grid_size = int(math.sqrt(NUM_DRONES))").unwrap();
+                writeln!(out, "    for i in range(NUM_DRONES):").unwrap();
+                writeln!(out, "        if i == 0:").unwrap();
+                writeln!(out, "            drone = supervisor.getFromDef('drone_0') or supervisor.getSelf()").unwrap();
+                writeln!(out, "            drones.append(drone)").unwrap();
+                writeln!(out, "            continue").unwrap();
+                writeln!(out, "        row = i // grid_size").unwrap();
+                writeln!(out, "        col = i % grid_size").unwrap();
+                writeln!(out, "        x = (col - grid_size // 2) * SPACING").unwrap();
+                writeln!(out, "        z = (row - grid_size // 2) * SPACING").unwrap();
+                writeln!(out, "        drone_string = f'Mavic2Pro {{}}'").unwrap();
+                writeln!(out, "        root = supervisor.getRoot()").unwrap();
+                writeln!(out, "        children = root.getField('children')").unwrap();
+                writeln!(out, "        children.importMFNodeFromString(-1, drone_string)").unwrap();
+                writeln!(out, "        drone = supervisor.getFromDef(f'drone_{{i}}')").unwrap();
+                writeln!(out, "        drones.append(drone)").unwrap();
+                writeln!(out, "    return drones").unwrap();
+                writeln!(out).unwrap();
+
+                // Individual drone controller
+                writeln!(out, "def drone_controller(robot):").unwrap();
+                writeln!(out, "    \"\"\"Individual drone controller with collision avoidance\"\"\"").unwrap();
+                writeln!(out, "    gps = robot.getDevice('gps')").unwrap();
+                writeln!(out, "    gps.enable(robot.timeStep)").unwrap();
+                writeln!(out, "    motors = [robot.getDevice(f'{{n}}_propeller') for n in").unwrap();
+                writeln!(out, "             ['front left', 'front right', 'rear left', 'rear right']]").unwrap();
+                writeln!(out, "    HOVER_SPEED = 68.5").unwrap();
+                writeln!(out, "    K_P = 0.5").unwrap();
+                writeln!(out, "    K_D = 1.0").unwrap();
+                writeln!(out, "    while robot.step(robot.timeStep) != -1:").unwrap();
+                writeln!(out, "        pos = gps.getValues()").unwrap();
+                writeln!(out, "        target = float(robot.getCustomData() or '3.0')").unwrap();
+                writeln!(out, "        error = target - pos[2]").unwrap();
+                writeln!(out, "        thrust = HOVER_SPEED + K_P * error").unwrap();
+                writeln!(out, "        for m in motors:").unwrap();
+                writeln!(out, "            m.setVelocity(thrust)").unwrap();
+            }
+        }
+
         writeln!(out).unwrap();
         writeln!(out, "# Main").unwrap();
         writeln!(out, "controller = FabricController()").unwrap();

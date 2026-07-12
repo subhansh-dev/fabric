@@ -126,6 +126,9 @@ impl TypeEnv {
                         }
                     }
                 }
+                Declaration::Drone(_) => {
+                    // Drones don't have type checking — structural declarations only
+                }
             }
         }
 

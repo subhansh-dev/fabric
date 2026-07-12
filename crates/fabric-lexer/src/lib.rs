@@ -71,6 +71,14 @@ pub enum Token {
     ErrorKw,
     #[token("probe")]
     Probe,
+    #[token("drone")]
+    Drone,
+    #[token("formation")]
+    Formation,
+    #[token("count")]
+    Count,
+    #[token("spacing")]
+    Spacing,
 
     // Identifiers
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]

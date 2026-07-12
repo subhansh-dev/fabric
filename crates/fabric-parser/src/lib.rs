@@ -144,6 +144,7 @@ impl<'tokens> Parser<'tokens> {
             Some(Token::Loop) => self.parse_loop_decl(),
             Some(Token::When) => self.parse_fallback_decl(),
             Some(Token::Fn) => self.parse_fn_decl(),
+            Some(Token::Drone) => self.parse_drone_decl(),
             Some(tok) => Err(ParseError {
                 message: format!("Unexpected token {:?}, expected declaration", tok),
                 span: self.peek_span(),
@@ -278,6 +279,66 @@ impl<'tokens> Parser<'tokens> {
             }
         }
         Ok(params)
+    }
+
+    fn parse_drone_decl(&mut self) -> Result<Declaration, ParseError> {
+        let start = self.expect(&Token::Drone)?;
+        let (name, _name_span) = self.expect_ident()?;
+        self.expect(&Token::LBrace)?;
+
+        let mut count = 4u32;
+        let mut spacing = 2.0f64;
+        let mut formation = Formation::Grid;
+        let mut fallback_expr = None;
+
+        while self.peek() != Some(&Token::RBrace) && !self.at_end() {
+            match self.peek() {
+                Some(Token::Count) => {
+                    self.advance();
+                    self.expect(&Token::Colon)?;
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        count = *n as u32;
+                        self.advance();
+                    }
+                }
+                Some(Token::Spacing) => {
+                    self.advance();
+                    self.expect(&Token::Colon)?;
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        spacing = *n;
+                        self.advance();
+                    }
+                }
+                Some(Token::Formation) => {
+                    self.advance();
+                    self.expect(&Token::Colon)?;
+                    if let Some(Token::Ident) = self.peek() {
+                        let (fname, _) = self.expect_ident()?;
+                        formation = match fname.name.as_str() {
+                            "circle" => Formation::Circle,
+                            "line" => Formation::Line,
+                            "diamond" => Formation::Diamond,
+                            _ => Formation::Grid,
+                        };
+                    }
+                }
+                _ => {
+                    self.advance(); // skip unknown tokens
+                }
+            }
+        }
+
+        let end = self.expect(&Token::RBrace)?;
+        let span = start.merge(&end);
+
+        Ok(Declaration::Drone(DroneDecl {
+            name,
+            count,
+            spacing,
+            formation,
+            fallback_expr,
+            span,
+        }))
     }
 
     // ─── Statements ─────────────────────────────────────────────────────
