@@ -193,7 +193,7 @@ fn extract_sensor_refs(expr: &Expression) -> Vec<String> {
 // ─── Timing Analyzer ─────────────────────────────────────────────────────
 
 /// Instruction cost model for ARM Cortex-M4
-struct CostModel {
+pub struct CostModel {
     costs: HashMap<String, f64>,
 }
 

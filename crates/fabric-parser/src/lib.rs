@@ -289,7 +289,7 @@ impl<'tokens> Parser<'tokens> {
         let mut count = 4u32;
         let mut spacing = 2.0f64;
         let mut formation = Formation::Grid;
-        let mut fallback_expr = None;
+        let fallback_expr = None;
 
         while self.peek() != Some(&Token::RBrace) && !self.at_end() {
             match self.peek() {
