@@ -1,0 +1,39 @@
+sensor imu: Sensor<f32, ±0.1>
+sensor altitude: Sensor<f32, ±0.5>
+sensor gps: Sensor<f32, ±1.0>
+
+actuator motors: Motor[4]
+
+fn dead_reckoning(imu_val: f32) -> f32 {
+    let result: f32 = imu_val * 0.95
+    return result
+}
+
+when imu unavailable for 100ms {
+    fallback to 0.0
+}
+
+when altitude unavailable for 200ms {
+    fallback to dead_reckoning(0.0)
+}
+
+when gps unavailable for 500ms {
+    fallback to 0.0
+}
+
+loop control within 2ms {
+    let gps_ok: bool = probe gps
+    let fused_altitude: f32 = merge imu altitude [0.6, 0.4]
+    let mode: f32 = match gps {
+        ok => 1.0,
+        timeout => 0.5,
+        error => 0.0
+    }
+    let target: f32 = 10.0
+    let err: f32 = target - fused_altitude
+    let correction: f32 = err * 0.5 * mode
+    write motors[0] = correction
+    write motors[1] = correction
+    write motors[2] = correction
+    write motors[3] = correction
+}

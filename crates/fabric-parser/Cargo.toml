@@ -1,0 +1,10 @@
+[package]
+name = "fabric-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fabric-core = { path = "../fabric-core" }
+fabric-ast = { path = "../fabric-ast" }
+fabric-lexer = { path = "../fabric-lexer" }
+ariadne = "0.4"

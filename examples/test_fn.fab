@@ -1,0 +1,10 @@
+fn scale(x: f32) -> f32 {
+    return x * 0.5
+}
+sensor imu: Sensor<f32, ±0.1>
+actuator motors: Motor[1]
+when imu unavailable for 100ms { fallback to 0.0 }
+loop control within 2ms {
+    let val: f32 = scale(10.0)
+    write motors[0] = val
+}

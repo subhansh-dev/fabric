@@ -1,0 +1,9 @@
+[package]
+name = "fabric-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fabric-core = { path = "../fabric-core" }
+fabric-ast = { path = "../fabric-ast" }
+fabric-types = { path = "../fabric-types" }

@@ -1,0 +1,8 @@
+[package]
+name = "fabric-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fabric-core = { path = "../fabric-core" }
+fabric-ast = { path = "../fabric-ast" }

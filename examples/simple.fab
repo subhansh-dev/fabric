@@ -1,0 +1,7 @@
+sensor altitude: Sensor<f32, ±0.5>
+
+actuator motors: Motor[4]
+
+loop control within 2ms {
+    let x: f32 = 1.0
+}

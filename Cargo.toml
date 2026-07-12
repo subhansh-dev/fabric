@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "crates/fabric-core",
+    "crates/fabric-ast",
+    "crates/fabric-lexer",
+    "crates/fabric-parser",
+    "crates/fabric-types",
+    "crates/fabric-checker",
+    "crates/fabric-codegen",
+    "crates/fabric-cli",
+]
+resolver = "2"

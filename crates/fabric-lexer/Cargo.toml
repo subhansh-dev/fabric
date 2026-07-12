@@ -1,0 +1,8 @@
+[package]
+name = "fabric-lexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fabric-core = { path = "../fabric-core" }
+logos = "0.14"

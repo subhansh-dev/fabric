@@ -1,0 +1,32 @@
+sensor gyro: Sensor<f32, ±0.05>
+sensor accelerometer: Sensor<f32, ±0.1>
+
+actuator servo: Motor[2]
+
+when gyro unavailable for 50ms {
+    fallback to 0.0
+}
+
+when accelerometer unavailable for 100ms {
+    fallback to 0.0
+}
+
+fn clamp(val: f32, lo: f32, hi: f32) -> f32 {
+    if val < lo {
+        return lo
+    }
+    if val > hi {
+        return hi
+    }
+    return val
+}
+
+loop stabilize within 1ms {
+    let angle: f32 = merge gyro accelerometer [0.7, 0.3]
+    let target: f32 = 0.0
+    let err: f32 = target - angle
+    let kp: f32 = 2.5
+    let correction: f32 = clamp(err * kp, -1.0, 1.0)
+    write servo[0] = correction
+    write servo[1] = -correction
+}
